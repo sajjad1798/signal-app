@@ -42,7 +42,9 @@ def on_open(ws):
 
 
 def on_close(ws, close_status_code, close_msg):
-    print("WebSocket connection closed")
+    print(
+        f"WebSocket connection closed. Code: {close_status_code}, Message: {close_msg}"
+    )
 
 
 # Start WebSocket
