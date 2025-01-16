@@ -87,9 +87,6 @@ def analyze_coin_for_crossover(symbol):
     latest = df.iloc[-1]
     prev = df.iloc[-2]
 
-    print("latest", latest)
-    print("prev", prev)
-
     # Check for bullish crossover with price condition
     if (
         prev["EMA_50"] <= prev["EMA_200"]
@@ -156,7 +153,7 @@ def run_crossover_analysis():
 
 
 # Schedule the analysis every 5 minutes
-schedule.every(1).minute.do(run_crossover_analysis)
+schedule.every(5).minutes.do(run_crossover_analysis)
 
 if __name__ == "__main__":
     print("Starting scheduled EMA crossover analysis...")
