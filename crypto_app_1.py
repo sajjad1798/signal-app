@@ -1,18 +1,22 @@
-import sqlite3
-from sqlalchemy import create_engine
 import pandas as pd
-from datetime import datetime, timedelta
 from ta.trend import EMAIndicator
 import requests
 import time
 import schedule
+from binance.client import Client
 
-# Create SQLite database engine
-engine = create_engine("sqlite:///CryptoDB.db")
+# Binance API configuration
+API_KEY = "your_api_key"
+API_SECRET = "your_api_secret"
+client = Client(API_KEY, API_SECRET)
 
 # Telegram Bot Configuration
 TELEGRAM_BOT_TOKEN = "7717260550:AAEfClasfGBAS6zmQj0waLUTQqQeyECyr1s"
 TELEGRAM_CHAT_ID = "1638869534"
+
+# Configuration
+INTERVAL = Client.KLINE_INTERVAL_5MINUTE  # Directly fetching 5-minute interval candles
+HISTORY_LIMIT = 200  # Ensure we fetch enough candles for EMA calculation
 
 
 # Function to send message to Telegram
@@ -29,44 +33,49 @@ def send_telegram_message(message):
         print(f"Error sending message to Telegram: {e}")
 
 
-# Aggregate second-by-second data into 5-minute candles
-def aggregate_to_5min(df):
-    df = df.sort_values("E")
-    df = df.set_index("E")
-    df = (
-        df.resample("5T")  # '5T' means 5-minute intervals
-        .agg(
-            {
-                "o": "first",
-                "h": "max",
-                "l": "min",
-                "c": "last",
-                "v": "sum",
-            }
+# Fetch historical price data for a single symbol from Binance
+def fetch_historical_data(symbol, interval=INTERVAL, limit=HISTORY_LIMIT):
+    try:
+        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+        df = pd.DataFrame(
+            klines,
+            columns=[
+                "timestamp",
+                "o",
+                "h",
+                "l",
+                "c",
+                "v",
+                "close_time",
+                "quote_asset_volume",
+                "trades",
+                "taker_buy_base",
+                "taker_buy_quote",
+                "ignore",
+            ],
         )
-        .dropna()
-    )
-    df = df.reset_index()
-    return df
+        # Convert relevant columns to numeric
+        for col in ["o", "h", "l", "c", "v"]:
+            df[col] = pd.to_numeric(df[col])
+        # Convert timestamp to datetime
+        df["E"] = pd.to_datetime(df["timestamp"], unit="ms")
+        return df[["E", "o", "h", "l", "c", "v"]]
+    except Exception as e:
+        print(f"Error fetching data for {symbol}: {e}")
+        return pd.DataFrame()
 
 
 # Analyze a single coin for EMA crossovers
-def analyze_coin_for_crossover(symbol, engine):
-    query = f"""
-    SELECT * FROM "{symbol}"
-    ORDER BY E ASC
-    """
-    df = pd.read_sql(query, engine)
+def analyze_coin_for_crossover(symbol):
+    df = fetch_historical_data(symbol)
 
     if df.empty:
         print(f"{symbol}: No data available.")
         return None
 
-    df["E"] = pd.to_datetime(df["E"])
-    df = aggregate_to_5min(df)  # Aggregate to 5-minute intervals
-
-    if len(df) < 200:  # Ensure enough data for EMA 200 calculation
-        print(f"{symbol}: Not enough data after aggregation for EMA calculations.")
+    # Ensure enough data for EMA calculations
+    if len(df) < 200:
+        print(f"{symbol}: Not enough data for EMA calculations.")
         return None
 
     close_prices = df["c"]
@@ -105,17 +114,24 @@ def analyze_coin_for_crossover(symbol, engine):
     return None  # No valid signal
 
 
-# Analyze all coins in the database
-def analyze_all_coins_for_crossover():
-    tables_query = "SELECT name FROM sqlite_master WHERE type='table'"
-    tables = pd.read_sql(tables_query, engine)["name"].tolist()
+# Fetch all USDT trading pairs from Binance
+def get_usdt_pairs():
+    try:
+        symbols = client.get_exchange_info()["symbols"]
+        return [s["symbol"] for s in symbols if s["symbol"].endswith("USDT")]
+    except Exception as e:
+        print(f"Error fetching trading pairs: {e}")
+        return []
 
+
+# Analyze all coins for crossover
+def analyze_all_coins_for_crossover():
+    tokens = get_usdt_pairs()
     results = []
-    for table in tables:
-        result = analyze_coin_for_crossover(table, engine)
+    for token in tokens:
+        result = analyze_coin_for_crossover(token)
         if result:
             results.append(result)
-
     return results
 
 
@@ -136,34 +152,8 @@ def run_crossover_analysis():
         print("No crossover events detected.")
 
 
-# Cleanup function to delete old data
-def cleanup_old_data(engine):
-    print("Running database cleanup...")
-    connection = engine.connect()
-    twelve_hours_ago = datetime.now() - timedelta(hours=12)
-    timestamp_cutoff = int(
-        twelve_hours_ago.timestamp() * 1000
-    )  # Convert to milliseconds
-
-    tables_query = "SELECT name FROM sqlite_master WHERE type='table'"
-    tables = pd.read_sql(tables_query, engine)["name"].tolist()
-
-    for table in tables:
-        delete_query = f"""
-        DELETE FROM "{table}" WHERE E < {timestamp_cutoff}
-        """
-        connection.execute(delete_query)
-        print(f"Cleaned up old data from table: {table}")
-
-    connection.close()
-
-
 # Schedule the analysis every 5 minutes
 schedule.every(5).minutes.do(run_crossover_analysis)
-
-# Schedule cleanup every 12 hours
-# schedule.every(12).hours.do(cleanup_old_data, engine=engine)
-
 
 if __name__ == "__main__":
     print("Starting scheduled EMA crossover analysis...")

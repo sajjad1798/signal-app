@@ -4,3 +4,4 @@ websocket-client
 ta
 schedule
 requests
+python-binance
