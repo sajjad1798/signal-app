@@ -16,7 +16,7 @@ TELEGRAM_CHAT_ID = "1638869534"
 
 # Configuration
 INTERVAL = Client.KLINE_INTERVAL_5MINUTE  # Directly fetching 5-minute interval candles
-HISTORY_LIMIT = 200  # Ensure we fetch enough candles for EMA calculation
+HISTORY_LIMIT = 1000  # Ensure we fetch enough candles for EMA calculation
 
 
 # Function to send message to Telegram
@@ -87,6 +87,9 @@ def analyze_coin_for_crossover(symbol):
     latest = df.iloc[-1]
     prev = df.iloc[-2]
 
+    print("latest", latest)
+    print("prev", prev)
+
     # Check for bullish crossover with price condition
     if (
         prev["EMA_50"] <= prev["EMA_200"]
@@ -153,7 +156,7 @@ def run_crossover_analysis():
 
 
 # Schedule the analysis every 5 minutes
-schedule.every(5).minutes.do(run_crossover_analysis)
+schedule.every(1).minute.do(run_crossover_analysis)
 
 if __name__ == "__main__":
     print("Starting scheduled EMA crossover analysis...")
